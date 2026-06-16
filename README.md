@@ -14,10 +14,23 @@ go run .
 
 默认监听 `http://localhost:8080`。
 
-## Docker 本地启动
+## Docker 启动
+
+`docker-compose.yml` 默认不在服务器本地构建镜像，而是直接使用 GitHub CI 发布到 GHCR 的现成镜像：
+
+- `ghcr.io/guohai163/speedtest-gh:latest`
+
+首次部署前，请先确保：
+
+- 代码已经推送到 GitHub 仓库
+- GitHub Actions 已成功跑完 Docker 工作流
+- `latest` 镜像已经发布到 GHCR
+
+启动命令：
 
 ```bash
-docker compose up --build
+docker compose pull
+docker compose up -d
 ```
 
 启动后访问 `http://localhost:8080`。
@@ -32,11 +45,17 @@ docker compose up --build
 
 当代码推送到 `main` 时，会自动构建并发布：
 
-- `ghcr.io/<owner>/<repo>:main`
-- `ghcr.io/<owner>/<repo>:latest`
-- `ghcr.io/<owner>/<repo>:sha-<commit>`
+- `ghcr.io/guohai163/speedtest-gh:main`
+- `ghcr.io/guohai163/speedtest-gh:latest`
+- `ghcr.io/guohai163/speedtest-gh:sha-<commit>`
 
 推送 `v1.0.0` 这类 tag 时，还会额外发布同名版本 tag 镜像。
+
+如果服务器拉取 GHCR 私有镜像，需要先登录：
+
+```bash
+echo <github_token> | docker login ghcr.io -u <github_username> --password-stdin
+```
 
 ## 服务配置
 

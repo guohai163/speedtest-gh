@@ -1,9 +1,8 @@
 services:
   speedtest-web:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/guohai163/speedtest-gh:latest
     container_name: speedtest-web
+    pull_policy: always
     ports:
       - "8080:8080"
     environment:

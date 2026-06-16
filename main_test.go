@@ -34,6 +34,8 @@ func TestHandlePing(t *testing.T) {
 func TestHandleIndexRendersConfig(t *testing.T) {
 	tmpl := template.Must(template.New("index").Parse(`<!doctype html><script>window.SPEEDTEST_CONFIG = {{ .Config }};</script>`))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Forwarded-For", "203.0.113.10, 10.0.0.2")
+	req.Header.Set("User-Agent", "speedtest-browser")
 	rec := httptest.NewRecorder()
 
 	handleIndex(config{
@@ -50,6 +52,12 @@ func TestHandleIndexRendersConfig(t *testing.T) {
 	}
 	if !strings.Contains(body, `"uploadDurationSeconds":7`) {
 		t.Fatalf("expected upload duration config in body, got %s", body)
+	}
+	if !strings.Contains(body, `"clientIp":"203.0.113.10"`) {
+		t.Fatalf("expected client IP config in body, got %s", body)
+	}
+	if !strings.Contains(body, `"userAgent":"speedtest-browser"`) {
+		t.Fatalf("expected user agent config in body, got %s", body)
 	}
 }
 
@@ -101,5 +109,15 @@ func TestHandleDownloadHeaders(t *testing.T) {
 	}
 	if rec.Body.Len() == 0 {
 		t.Fatalf("expected non-empty body")
+	}
+}
+
+func TestResolveClientIP(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Real-IP", "198.51.100.8")
+	req.RemoteAddr = "127.0.0.1:12345"
+
+	if got := resolveClientIP(req); got != "198.51.100.8" {
+		t.Fatalf("expected X-Real-IP, got %q", got)
 	}
 }

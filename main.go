@@ -10,10 +10,12 @@ import (
 	"io/fs"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -41,8 +43,10 @@ type config struct {
 }
 
 type pageConfig struct {
-	DownloadDurationSeconds int `json:"downloadDurationSeconds"`
-	UploadDurationSeconds   int `json:"uploadDurationSeconds"`
+	DownloadDurationSeconds int    `json:"downloadDurationSeconds"`
+	UploadDurationSeconds   int    `json:"uploadDurationSeconds"`
+	ClientIP                string `json:"clientIp"`
+	UserAgent               string `json:"userAgent"`
 }
 
 type pageData struct {
@@ -73,6 +77,7 @@ func main() {
 	mux.HandleFunc("/", handleIndex(cfg, indexTemplate))
 	mux.Handle("/styles.css", cacheControlMiddleware(http.FileServer(http.FS(staticFS))))
 	mux.Handle("/app.js", cacheControlMiddleware(http.FileServer(http.FS(staticFS))))
+	mux.HandleFunc("/favicon.ico", handleFavicon)
 	mux.HandleFunc("/api/ping", handlePing)
 	mux.HandleFunc("/api/download", handleDownload(cfg))
 	mux.HandleFunc("/api/upload", handleUpload(cfg))
@@ -126,16 +131,6 @@ func handlePing(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleIndex(cfg config, tmpl *template.Template) http.HandlerFunc {
-	payload, err := json.Marshal(pageConfig{
-		DownloadDurationSeconds: cfg.DownloadDurationSeconds,
-		UploadDurationSeconds:   cfg.UploadDurationSeconds,
-	})
-	if err != nil {
-		log.Fatalf("failed to encode page config: %v", err)
-	}
-
-	data := pageData{Config: template.JS(payload)}
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -146,12 +141,29 @@ func handleIndex(cfg config, tmpl *template.Template) http.HandlerFunc {
 			return
 		}
 
+		payload, err := json.Marshal(pageConfig{
+			DownloadDurationSeconds: cfg.DownloadDurationSeconds,
+			UploadDurationSeconds:   cfg.UploadDurationSeconds,
+			ClientIP:                resolveClientIP(r),
+			UserAgent:               r.UserAgent(),
+		})
+		if err != nil {
+			log.Printf("failed to encode page config: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to render page")
+			return
+		}
+
+		data := pageData{Config: template.JS(payload)}
 		setNoStoreHeaders(w)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := tmpl.Execute(w, data); err != nil {
 			log.Printf("failed to render index: %v", err)
 		}
 	}
+}
+
+func handleFavicon(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleDownload(cfg config) http.HandlerFunc {
@@ -298,6 +310,30 @@ func getEnvInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func resolveClientIP(r *http.Request) string {
+	forwardedFor := r.Header.Get("X-Forwarded-For")
+	if forwardedFor != "" {
+		parts := strings.Split(forwardedFor, ",")
+		if len(parts) > 0 {
+			candidate := strings.TrimSpace(parts[0])
+			if candidate != "" {
+				return candidate
+			}
+		}
+	}
+
+	realIP := strings.TrimSpace(r.Header.Get("X-Real-IP"))
+	if realIP != "" {
+		return realIP
+	}
+
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 func cacheControlMiddleware(next http.Handler) http.Handler {
